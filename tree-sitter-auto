@@ -126,7 +126,35 @@ function match_content {
     return 1
 }
 
+function usage() {
+    echo "Usage:"
+    echo
+    echo "  $0 [options] <file>"
+    echo
+    echo "Options:"
+    echo "  -h --help     Show this message"
+    echo "  -v --verbose  Turn on tracing"
+    echo
+    echo 'If <file> is "-" then stdin will be read'
+    exit 1
+}
+
 ######################### Start #########################
+
+
+while [[ ${#@} > 0 ]]; do
+    case $1 in
+        -h | --help)    usage ;;
+        -v | --verbose) set -x ;;
+        --)             shift; break ;;
+        -)              break ;; # This is not an option though it looks like one
+        -*)             { echo "Unknown option '$1'"; usage; } 1>&2 ;;
+        *)              break ;;
+    esac
+    shift
+done
+
+[[ ${#@} == 0 ]] && usage
 
 if [ "$1" != "-" ]; then
     tree_sitter highlight "$1"
