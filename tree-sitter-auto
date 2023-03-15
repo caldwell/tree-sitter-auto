@@ -1,0 +1,163 @@
+#!/bin/bash
+
+shopt -s extglob nullglob
+
+function tree_sitter {
+    # tree-sitter highlight doesn't set it's exit code when it can't highlight. grrrrr.
+    if [ -o xtrace ]; then
+        tree-sitter "$@"
+    else
+        tree-sitter "$@" 2>/dev/null
+    fi | {
+        IFS=''
+        read -d '' -r -n 10 something
+        IFS=' '
+        [ -z "$something" ] && return 1
+        echo -n "$something"
+        cat
+    }
+}
+
+# This uses the same regexp/matching logic that emacs uses. Regexes are straight from emacs, translated into bash
+function match_shebang() {
+    re=$'#![ \t]?([^ \t\n]*/bin/env[ \t])?([^ \t\n]+)'
+    if [[ ! "$line" =~ $re ]]; then
+        return 1
+    fi
+
+    interp=${BASH_REMATCH[2]##*/}
+    if [[ "$interp" =~ php(?:-?[34578](?:\.[0-9]+)*)? ]]; then
+        scope=source.php
+        return 0
+    elif [[ $interp =~ (mini)?perl5? ]]; then
+        scope=source.perl
+        return 0
+    elif [[ $interp =~ (dt|pd|w)ksh ]]; then
+        scope=source.bash
+        return 0
+    fi
+    case $interp in
+        lua)             scope=source.lua ;;
+        ruby1.8)         scope=source.ruby ;;
+        ruby1.9)         scope=source.ruby ;;
+        jruby)           scope=source.ruby ;;
+        rbx)             scope=source.ruby ;;
+        ruby)            scope=source.ruby ;;
+        python*([0-9.])) scope=source.python ;;
+        rhino)           scope=source.javascript ;;
+        gjs)             scope=source.javascript ;;
+        nodejs)          scope=source.javascript ;;
+        node)            scope=source.javascript ;;
+        scm)             scope=source.scheme ;;
+        [acjkwz]sh)      scope=source.bash ;;
+        ?(r)bash?(2))    scope=source.bash ;;
+        dash)            scope=source.bash ;;
+        mksh)            scope=source.bash ;;
+        es)              scope=source.bash ;;
+        ?(i)tcsh)        scope=source.bash ;;
+        oash)            scope=source.bash ;;
+        rc)              scope=source.bash ;;
+        rpm)             scope=source.bash ;;
+        sh?(5))          scope=source.bash ;;
+        guile)           scope=source.scheme ;;
+        clisp)           scope=source.scheme ;;
+        emacs)           scope=source.scheme ;;
+    esac
+    [ -z $scope ] && return 1
+    return 0
+}
+
+# Files might have an emacs mode listed. Probably not, but if it's there we might as well use it.
+function match_emacs_mode {
+    if [[ $line =~ "-*-"[[:space:]]*([^-\*]+)[[:space:]]*"-*-" ]]; then # Emacs file vars that might have the mode
+        for mode in "${langs[@]}" js2 web cperl rustic c++; do
+            lang=
+            case $mode in    # Handle the cases where the emacs mode doesn't line up with the tree-sitter lang
+                c++)    lang=source.cpp ;;
+                js2)    lang=source.javascript ;;
+                web)    lang=text.html.basic ;;
+                cperl)  lang=source.pm ;;
+                rustic) lang=source.rust ;;
+                *)      eval "lang=\$${mode//-/_}_scope" ;;
+            esac
+            re=
+            if [ -n "$lang" ] && [[ "$line" =~ "-*-"[[:space:]]*"$mode"[[:space:]]*"-*-" ]]; then
+                scope=$lang
+                return 0
+            fi
+        done
+    fi
+    return 1
+}
+
+function match_content {
+    # Read 4096 bytes of the file (don't stop at EOL, don't split words, don't
+    # intepret backslashes), timing out in 100ms. If it's not there by then it's
+    # probably from a logging pipeline and waiting for more data is probablly
+    # annoying the user.
+    IFS=''
+    read -d '' -n 4096 -r -t 1 buf
+    IFS=' '
+    chunk="$chunk$buf"
+
+    # This comes straight from Emacs
+    incomment_re="(?:[^-]|-[^-])"
+    comment_re='(?:!--'$incomment_re'*-->[[:space:]]*<)'
+    html_re='(?:<\?xml[[:space:]]+[^>]*>)?[[:space:]]*<'$comment_re'*''(?:!DOCTYPE[[:space:]]+[^>]*>[[:space:]]*<[[:space:]]*'$comment_re'*)?''[Hh][Tt][Mm][Ll]'
+    if [[ $chunk =~ $re || $chunk =~ \<\![Dd][Oo][Cc][Tt][Yy][Pp][Ee][[:space:]]+[Hh][Tt][Mm][Ll] ]]; then
+        scope=text.html.basic
+        return 0
+    fi
+
+    # This comes straight from Emacs
+    if [[ $chunk =~ ^%YAML[[:space:]]-+[0-9]+\.[0-9]+([[:space:]]-+#|[[:space:]]-*$) ]]; then
+        scope=source.yaml
+        return 0
+    fi
+
+    re=$'\n *fn[ <]|\n *async fn[ <]|\nimpl[ <]'
+    if [[ $chunk =~ $re ]]; then
+        scope=source.rust
+        return 0
+    fi
+
+    # TODO: Add lots more!
+
+    return 1
+}
+
+######################### Start #########################
+
+if [ "$1" != "-" ]; then
+    tree_sitter highlight "$1"
+    exit $?
+fi
+
+IFS=''
+read line
+IFS=' '
+chunk=$line$'\n'
+
+# TODO: stop hardcoding this and look it up from the treesitter config file (which is slightly annoying because it is json).
+SOURCES=/Users/david/contrib/tree-sitter-langs/tree-sitter-links
+
+langs=()
+for langdir in $SOURCES/tree-sitter-*; do
+    lang=${langdir##*/tree-sitter-}
+    IFS=''
+    read -r -d '' package_json < $langdir/package.json
+    IFS=' '
+    # This assumes the first mention of scope in the file is the main one.
+    if [[ $package_json =~ \"scope\"[[:space:]]*:[[:space:]]*\"(source\.[^\"]+)\" ]]; then
+        langs+=($lang)
+        eval "${lang//-/_}_scope=${BASH_REMATCH[1]}"
+    fi
+done
+
+
+if match_shebang || match_emacs_mode || match_content; then
+    tree_sitter highlight --scope $scope <(echo -n "$chunk"; cat)
+    exit 0
+fi
+
+echo -n "$chunk"; exec cat
