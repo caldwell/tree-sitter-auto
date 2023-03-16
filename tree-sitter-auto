@@ -125,6 +125,23 @@ function match_content {
     return 1
 }
 
+# Read from stdin and guess the scope type.
+function guess {
+    read line
+    chunk=$line$'\n'
+
+    if match_shebang || match_emacs_mode || match_content; then
+        tree_sitter highlight --scope $scope <(send_pipe)
+        return $?
+    fi
+    return 1
+}
+
+# Write what we've read out so far and then the rest of the pipe/file
+function send_pipe {
+    echo -n "$chunk"; cat
+}
+
 function usage() {
     echo "Usage:"
     echo
@@ -155,14 +172,6 @@ done
 
 [[ ${#@} == 0 ]] && usage
 
-if [ "$1" != "-" ]; then
-    tree_sitter highlight "$1"
-    exit $?
-fi
-
-read line
-chunk=$line$'\n'
-
 # TODO: stop hardcoding this and look it up from the treesitter config file (which is slightly annoying because it is json).
 SOURCES=/Users/david/contrib/tree-sitter-langs/tree-sitter-links
 
@@ -177,10 +186,14 @@ for langdir in $SOURCES/tree-sitter-*; do
     fi
 done
 
-
-if match_shebang || match_emacs_mode || match_content; then
-    tree_sitter highlight --scope $scope <(echo -n "$chunk"; cat)
+if [ "$1" != "-" ]; then
+    tree_sitter highlight "$1" && exit 0
+    guess <"$1" && exit 0
+else
+    guess && exit 0
+    # We already read the input pipe so we need to not dump it on the floor
+    send_pipe
     exit 0
 fi
 
-echo -n "$chunk"; exec cat
+send_pipe
