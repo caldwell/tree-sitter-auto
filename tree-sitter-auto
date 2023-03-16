@@ -189,11 +189,10 @@ done
 if [ "$1" != "-" ]; then
     tree_sitter highlight "$1" && exit 0
     guess <"$1" && exit 0
+    exit 1
 else
     guess && exit 0
     # We already read the input pipe so we need to not dump it on the floor
     send_pipe
     exit 0
 fi
-
-send_pipe
