@@ -92,15 +92,6 @@ function match_emacs_mode {
 }
 
 function match_content {
-    # Read 4096 bytes of the file (don't stop at EOL, don't split words, don't
-    # intepret backslashes), timing out in 200ms. If it's not there by then it's
-    # probably from a logging pipeline and waiting for more data is probablly
-    # annoying the user.
-    timeout=0.2
-    [ "${BASH_VERSINFO[0]}" -lt 4 ] && timeout=1 # Lowly mac users are stuck with a one second timeout because Apple is too cowardly to install a decent bash
-    read -d '' -n 4096 -r -t $timeout chunk
-    chunk="$chunk$buf"
-
     # This comes straight from Emacs
     incomment_re="(?:[^-]|-[^-])"
     comment_re='(?:!--'$incomment_re'*-->[[:space:]]*<)'
@@ -129,8 +120,19 @@ function match_content {
 
 # Read from stdin and guess the scope type.
 function guess {
-    read line
-    chunk=$line$'\n'
+    # Read 4096 bytes of the file (don't stop at EOL, don't split words, don't
+    # intepret backslashes), timing out in 200ms. If it's not there by then it's
+    # probably from a logging pipeline and waiting for more data is probablly
+    # annoying the user.
+    timeout=0.2
+    [ "${BASH_VERSINFO[0]}" -lt 4 ] && timeout=1 # Lowly mac users are stuck with a one second timeout because Apple is too cowardly to install a decent bash
+    unset chunk
+    read -d '' -n 4096 -r -t $timeout chunk
+    test -z "$chunk" && return 1 # If we timed out, then punt
+
+    read line < <(echo "$chunk") # Separate the first line for convenience
+
+    [[ $chunk =~ $'\e['[0-9\;:]+m ]] && return 1 # If it's already got ansi color escapes, don't mess with it
 
     if match_shebang || match_emacs_mode || match_content; then
         tree_sitter highlight --scope $scope <(send_pipe)
