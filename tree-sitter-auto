@@ -12,9 +12,7 @@ function tree_sitter {
     else
         tree-sitter "$@" </dev/null 2>/dev/null
     fi | {
-        IFS=''
         read -d '' -r -n 10 something
-        IFS=' '
         [ -z "$something" ] && return 1
         echo -n "$something"
         cat
@@ -98,9 +96,7 @@ function match_content {
     # intepret backslashes), timing out in 100ms. If it's not there by then it's
     # probably from a logging pipeline and waiting for more data is probablly
     # annoying the user.
-    IFS=''
     read -d '' -n 4096 -r -t 1 buf
-    IFS=' '
     chunk="$chunk$buf"
 
     # This comes straight from Emacs
@@ -164,9 +160,7 @@ if [ "$1" != "-" ]; then
     exit $?
 fi
 
-IFS=''
 read line
-IFS=' '
 chunk=$line$'\n'
 
 # TODO: stop hardcoding this and look it up from the treesitter config file (which is slightly annoying because it is json).
@@ -175,9 +169,7 @@ SOURCES=/Users/david/contrib/tree-sitter-langs/tree-sitter-links
 langs=()
 for langdir in $SOURCES/tree-sitter-*; do
     lang=${langdir##*/tree-sitter-}
-    IFS=''
     read -r -d '' package_json < $langdir/package.json
-    IFS=' '
     # This assumes the first mention of scope in the file is the main one.
     if [[ $package_json =~ \"scope\"[[:space:]]*:[[:space:]]*\"(source\.[^\"]+)\" ]]; then
         langs+=($lang)
