@@ -189,6 +189,7 @@ for langdir in $SOURCES/tree-sitter-*; do
 done
 
 if [ "$1" != "-" ]; then
+    test -f "$1" || exit 0 # Don't even bother if it ain't there
     tree_sitter highlight "$1" && exit 0
     guess <"$1" && exit 0
     exit 1
